@@ -1,0 +1,13 @@
+{
+    "x": [...Array(10000)].map(() => (Math.random() * 10) - 5),
+    "y": [...Array(10000)].map(() => (Math.random() * 10) - 5),
+    "z": [...Array(10000)].map(() => (Math.random() * 10) - 5),
+    "taxcode": [...Array(10000)].map((_, i) => `TAX${String(i).padStart(6, '0')}`),
+    "date": [...Array(10000)].map(() => {
+        const start = new Date(2023, 0, 1);
+        const end = new Date(2023, 11, 31);
+        const date = new Date(start.getTime() + Math.random() * (end.getTime() - start.getTime()));
+        return date.toISOString().split('T')[0];
+    }),
+    "image": [...Array(10000)].map((_, i) => `data/images/image${String(i).padStart(6, '0')}.jpg`)
+}

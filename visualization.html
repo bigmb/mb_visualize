@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>3D Embeddings Visualization</title>
+    <style>
+        body { margin: 0; }
+        canvas { display: block; }
+        #info {
+            position: absolute;
+            top: 10px;
+            width: 100%;
+            text-align: center;
+            color: white;
+            font-family: Arial, sans-serif;
+            pointer-events: none;
+            z-index: 100;
+            text-shadow: 1px 1px 2px black;
+        }
+        #metadata {
+            position: absolute;
+            top: 60px;
+            right: 20px;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            font-family: Arial, sans-serif;
+            border-radius: 5px;
+            display: none;
+            z-index: 100;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        #stats {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            color: white;
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 5px;
+            border-radius: 3px;
+        }
+        #lassoCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            z-index: 99;
+        }
+        #controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+            color: white;
+            font-family: Arial, sans-serif;
+            z-index: 100;
+        }
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-family: Arial, sans-serif;
+            font-size: 24px;
+            z-index: 200;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 20px;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">3D Embeddings Visualization<br>Hold Shift + Click and drag to select points with lasso</div>
+    <div id="metadata"></div>
+    <div id="stats"></div>
+    <div id="controls">
+        <button id="clearSelection">Clear Selection</button>
+        <div>Selected: <span id="selectionCount">0</span> points</div>
+    </div>
+    <div id="loading">Loading embeddings...</div>
+    <canvas id="lassoCanvas"></canvas>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script>
+        let pointCloud;
+        let pointsData;
+        let originalColors = [];
+        let selectedPoints = new Set();
+        
+        // Initialize Three.js scene
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x1a1a1a);
+        
+        // Camera setup
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(4, 4, 4);
+        camera.lookAt(0, 0, 0);
+        
+        // Renderer setup
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        document.body.appendChild(renderer.domElement);
+        
+        // Lasso canvas setup
+        const lassoCanvas = document.getElementById('lassoCanvas');
+        const lassoCtx = lassoCanvas.getContext('2d');
+        lassoCanvas.width = window.innerWidth;
+        lassoCanvas.height = window.innerHeight;
+        
+        // Add OrbitControls
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.screenSpacePanning = false;
+        controls.minDistance = 1;
+        controls.maxDistance = 50;
+        
+        // Add grid helper
+        const gridHelper = new THREE.GridHelper(10, 20, 0x444444, 0x222222);
+        scene.add(gridHelper);
+        
+        // Add axes helper
+        const axesHelper = new THREE.AxesHelper(5);
+        scene.add(axesHelper);
+        
+        // Add lights
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambientLight);
+        
+        const pointLight = new THREE.PointLight(0xffffff, 1);
+        pointLight.position.set(5, 5, 5);
+        scene.add(pointLight);
+        
+        // Raycaster for point selection
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        raycaster.params.Points.threshold = 0.1;
+        
+        // Lasso selection variables
+        let isLassoActive = false;
+        let lassoPoints = [];
+        
+        async function loadPoints() {
+            try {
+                const response = await fetch('data/embeddings/sample_embedding.json');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                pointsData = await response.json();
+                createPoints();
+                document.getElementById('loading').style.display = 'none';
+            } catch (error) {
+                console.error('Error loading points:', error);
+                document.getElementById('loading').textContent = 'Error loading embeddings';
+            }
+        }
+        
+        function createPoints() {
+            const geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(pointsData.x.length * 3);
+            const colors = new Float32Array(pointsData.x.length * 3);
+            
+            for(let i = 0; i < pointsData.x.length; i++) {
+                positions[i * 3] = pointsData.x[i];
+                positions[i * 3 + 1] = pointsData.y[i];
+                positions[i * 3 + 2] = pointsData.z[i];
+                
+                const color = new THREE.Color().setHSL(0.5, 0.5, 0.5);
+                colors[i * 3] = color.r;
+                colors[i * 3 + 1] = color.g;
+                colors[i * 3 + 2] = color.b;
+                originalColors.push(color.clone());
+            }
+            
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            
+            const material = new THREE.PointsMaterial({
+                size: 0.1,
+                vertexColors: true,
+                sizeAttenuation: true
+            });
+            
+            pointCloud = new THREE.Points(geometry, material);
+            scene.add(pointCloud);
+            
+            document.getElementById('stats').textContent = `Total points: ${pointsData.x.length}`;
+        }
+        
+        function onMouseDown(event) {
+            if (event.shiftKey) {
+                isLassoActive = true;
+                lassoPoints = [];
+                lassoPoints.push({ x: event.clientX, y: event.clientY });
+                controls.enabled = false;
+                
+                lassoCtx.clearRect(0, 0, lassoCanvas.width, lassoCanvas.height);
+            }
+        }
+        
+        function onMouseMove(event) {
+            if (isLassoActive) {
+                lassoPoints.push({ x: event.clientX, y: event.clientY });
+                
+                lassoCtx.clearRect(0, 0, lassoCanvas.width, lassoCanvas.height);
+                lassoCtx.beginPath();
+                lassoCtx.moveTo(lassoPoints[0].x, lassoPoints[0].y);
+                for (let i = 1; i < lassoPoints.length; i++) {
+                    lassoCtx.lineTo(lassoPoints[i].x, lassoPoints[i].y);
+                }
+                lassoCtx.strokeStyle = 'white';
+                lassoCtx.lineWidth = 2;
+                lassoCtx.stroke();
+            }
+        }
+        
+        function onMouseUp(event) {
+            if (isLassoActive) {
+                isLassoActive = false;
+                controls.enabled = true;
+                
+                lassoPoints.push(lassoPoints[0]);
+                
+                const positions = pointCloud.geometry.attributes.position.array;
+                const colors = pointCloud.geometry.attributes.color.array;
+                
+                for (let i = 0; i < positions.length; i += 3) {
+                    const vector = new THREE.Vector3(positions[i], positions[i + 1], positions[i + 2]);
+                    vector.project(camera);
+                    
+                    const x = (vector.x + 1) * window.innerWidth / 2;
+                    const y = (-vector.y + 1) * window.innerHeight / 2;
+                    
+                    if (isPointInPolygon(x, y, lassoPoints)) {
+                        const index = i / 3;
+                        selectedPoints.add(index);
+                        
+                        colors[i] = 1;     // Red
+                        colors[i + 1] = 0; // Green
+                        colors[i + 2] = 0; // Blue
+                    }
+                }
+                
+                pointCloud.geometry.attributes.color.needsUpdate = true;
+                lassoCtx.clearRect(0, 0, lassoCanvas.width, lassoCanvas.height);
+                
+                document.getElementById('selectionCount').textContent = selectedPoints.size;
+                showMetadataForSelection();
+            }
+        }
+        
+        function isPointInPolygon(x, y, polygon) {
+            let inside = false;
+            for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+                const xi = polygon[i].x, yi = polygon[i].y;
+                const xj = polygon[j].x, yj = polygon[j].y;
+                
+                const intersect = ((yi > y) !== (yj > y))
+                    && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+                if (intersect) inside = !inside;
+            }
+            return inside;
+        }
+        
+        function showMetadataForSelection() {
+            if (selectedPoints.size === 0) {
+                hideMetadata();
+                return;
+            }
+            
+            const metadata = document.getElementById('metadata');
+            metadata.style.display = 'block';
+            
+            let html = '<strong>Selected Points:</strong><br>';
+            selectedPoints.forEach(index => {
+                html += `<div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #444;">
+                    Position: (${pointsData.x[index].toFixed(2)}, ${pointsData.y[index].toFixed(2)}, ${pointsData.z[index].toFixed(2)})<br>
+                    Tax Code: ${pointsData.taxcode[index]}<br>
+                    Date: ${pointsData.date[index]}<br>
+                    Image: ${pointsData.image[index]}
+                </div>`;
+            });
+            
+            metadata.innerHTML = html;
+        }
+        
+        function hideMetadata() {
+            const metadata = document.getElementById('metadata');
+            metadata.style.display = 'none';
+        }
+        
+        document.getElementById('clearSelection').addEventListener('click', () => {
+            selectedPoints.clear();
+            const colors = pointCloud.geometry.attributes.color.array;
+            
+            for(let i = 0; i < colors.length; i += 3) {
+                const originalColor = originalColors[i/3];
+                colors[i] = originalColor.r;
+                colors[i + 1] = originalColor.g;
+                colors[i + 2] = originalColor.b;
+            }
+            
+            pointCloud.geometry.attributes.color.needsUpdate = true;
+            document.getElementById('selectionCount').textContent = '0';
+            hideMetadata();
+        });
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            lassoCanvas.width = window.innerWidth;
+            lassoCanvas.height = window.innerHeight;
+        }
+        
+        window.addEventListener('resize', onWindowResize, false);
+        window.addEventListener('mousedown', onMouseDown, false);
+        window.addEventListener('mousemove', onMouseMove, false);
+        window.addEventListener('mouseup', onMouseUp, false);
+        
+        loadPoints();
+        animate();
+    </script>
+</body>
+</html>

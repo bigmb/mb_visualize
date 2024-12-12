@@ -1,0 +1,26 @@
+{
+    "x": [1.2, -0.8, 0.5, -1.5, 2.0],
+    "y": [0.8, -1.2, 1.5, -0.5, -2.0],
+    "z": [0.5, -0.3, 1.0, -1.0, 0.8],
+    "image": [
+        "data/images/sample1.jpg",
+        "data/images/sample2.jpg",
+        "data/images/sample3.jpg",
+        "data/images/sample4.jpg",
+        "data/images/sample5.jpg"
+    ],
+    "date": [
+        "2023-11-20",
+        "2023-11-20",
+        "2023-11-21",
+        "2023-11-21",
+        "2023-11-22"
+    ],
+    "taxcode": [
+        "ABC123",
+        "ABC124",
+        "ABC125",
+        "ABC126",
+        "ABC127"
+    ]
+}
